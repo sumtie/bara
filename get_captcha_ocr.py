@@ -167,24 +167,28 @@ def main():
 
             # 输入验证码
             try:
-                input_box = WebDriverWait(driver, 10).until(
+                # 等待输入框出现
+                input_box = WebDriverWait(driver, 12).until(
                     EC.presence_of_element_located((By.XPATH, XPATH_INPUT))
                 )
+
+                # 滚动到输入框
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", input_box)
+                time.sleep(1.5)
+                driver.execute_script("window.scrollBy(0, -80);")  # 避免被顶部栏挡住
+
                 input_box.clear()
                 input_box.send_keys(result)
                 print(f"✅ 已输入验证码：{result}")
-            except Exception as e:
-                print(f"⚠️ 输入验证码失败：{e}")
 
-            # 点击提交
-            try:
+                # 点击提交按钮
                 submit_btn = WebDriverWait(driver, 8).until(
                     EC.element_to_be_clickable((By.XPATH, XPATH_SUBMIT))
                 )
                 submit_btn.click()
                 print("✅ 已点击「确定」按钮")
             except Exception as e:
-                print(f"⚠️ 点击提交失败：{e}")
+                print(f"⚠️ 输入或提交操作失败：{e}")
 
             # ================== 新判断逻辑：检查 protected-content 内容长度 ==================
             print(f"⏳ 第 {attempt} 次提交后，等待内容解锁...")
