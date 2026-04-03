@@ -95,6 +95,39 @@ def extract_and_save_nodes(driver, filename="node_content.txt"):
     return node_content
 
 
+def clean_nodes_to_subfile(input_file="node_content.txt", output_file="sub/v2.txt"):
+    """
+    读取 node_content.txt，清洗只保留节点链接，并保存到 sub/v2.txt
+    """
+    import os
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)  # 自动创建 sub 文件夹
+
+    try:
+        with open(input_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        clean_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # 保留所有常见协议节点
+            if re.match(r'^(ss://|vmess://|vless://|trojan://|hysteria2://)', stripped, re.IGNORECASE):
+                clean_lines.append(stripped)
+
+        if clean_lines:
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(clean_lines))
+
+            print(f"✅ 节点清洗完成！共保留 {len(clean_lines)} 个有效节点")
+            print(f"   已保存到 → {output_file}")
+        else:
+            print("⚠️ 未找到任何有效节点")
+
+    except Exception as e:
+        print(f"❌ 清洗节点时发生错误：{e}")
+
+
 def dismiss_consent_banner(driver):
     """自动移除 fc-consent-root 弹窗"""
     try:
@@ -212,6 +245,7 @@ def main():
             if success:
                 print("✅ 验证码验证通过，开始提取节点...")
                 extract_and_save_nodes(driver, filename="node_content.txt")
+                clean_nodes_to_subfile()
                 break
             else:
                 print(f"❌ 第 {attempt} 次验证失败（内容不足）")
