@@ -18,6 +18,11 @@ import numpy as np
 URL = "https://www.youneed.win/2026-04-03%E6%9C%80%E6%96%B0%E5%85%8D%E8%B4%B9%E5%85%AC%E7%9B%8Ass-vmess-vless-trojan-hysteria2%E8%8A%82%E7%82%B9%E5%88%86%E4%BA%AB.html"
 XPATH_CAPTCHA_IMG = "/html/body/main/div/div[2]/div[1]/div[1]/div[1]/div[2]/div/div[1]/div[1]/div/img"
 
+# 新增：验证码输入框和确定按钮的 XPath（根据页面实际情况微调）
+XPATH_INPUT = "//input[contains(@placeholder,'验证码') or contains(@class,'captcha') or @name='captcha' or @id='captcha']"
+XPATH_SUBMIT = "//button[contains(text(),'确定') or contains(text(),'提交') or contains(text(),'验证') or contains(@class,'submit')]"
+
+
 
 def dismiss_consent_banner(driver):
     """自动移除 fc-consent-root 弹窗"""
@@ -59,7 +64,7 @@ def main():
         driver.get(URL)
         driver.maximize_window()
 
-        # ================== 新增：移除同意弹窗 ==================
+        # 移除同意弹窗
         dismiss_consent_banner(driver)
 
         print("⏳ 等待验证码图片加载...")
@@ -89,8 +94,54 @@ def main():
 
         # OCR 识别
         result = ocr_with_cleaning(save_path)
-        print(f"{save_path}：🔍 处理后识别结果：{result}")
-        print("🎉 保存完成！浏览器会保持打开 30 秒，你可以直接输入验证码。")
+        print(f"{save_path}：🔍 处理后识别结果（仅数字）：{result}")
+
+        # ================== 新增：自动输入验证码 ==================
+        try:
+            input_box = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, XPATH_INPUT))
+            )
+            input_box.clear()
+            input_box.send_keys(result)
+            print(f"✅ 已自动输入验证码：{result}")
+        except Exception as e:
+            print(f"⚠️ 自动输入验证码失败（请手动输入）：{e}")
+
+        # ================== 新增：点击“确定”按钮 ==================
+        try:
+            submit_btn = WebDriverWait(driver, 8).until(
+                EC.element_to_be_clickable((By.XPATH, XPATH_SUBMIT))
+            )
+            submit_btn.click()
+            print("✅ 已点击「确定」按钮")
+        except Exception as e:
+            print(f"⚠️ 点击「确定」按钮失败：{e}")
+
+        # ================== 新增：等待并打印节点内容 ==================
+        print("⏳ 等待节点内容加载）...")
+        time.sleep(15)  # 给页面一点时间解锁内容
+
+        try:
+            # 尝试提取节点内容（常见位置：pre/code 或包含 vmess/ss 的 div）
+            node_elements = driver.find_elements(By.XPATH,
+                                                 "//pre | //code | //div[contains(@class,'highlight') or contains(@class,'node') or contains(@class,'content')]")
+
+            if node_elements:
+                node_content = "\n\n".join([el.text.strip() for el in node_elements if el.text.strip()])
+            else:
+                # 备用方案：提取整个 main 区域
+                node_content = driver.find_element(By.TAG_NAME, "main").text
+
+            print("\n" + "=" * 70)
+            print("✅ 节点内容提取成功（订阅地址 + 所有节点）：")
+            print(node_content)
+            print("=" * 70)
+        except Exception as e:
+            print(f"⚠️ 提取节点内容失败：{e}")
+            print("页面主要内容预览（前 2000 字符）：")
+            print(driver.find_element(By.TAG_NAME, "main").text[:2000])
+
+        print("\n🎉 全流程自动化完成！浏览器保持打开 30 秒，你可以手动检查。")
         time.sleep(30)
 
     except Exception as e:
