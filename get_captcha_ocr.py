@@ -212,6 +212,7 @@ def main():
             print('获取文章最新地址失败。。。请检查：get_latest_node_url()函数')
             return
         print(f"🌐 使用最新文章地址：{URL}")
+        time.sleep(1.5)
         driver.get(URL)
         driver.maximize_window()
 
