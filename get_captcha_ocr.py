@@ -24,6 +24,10 @@ XPATH_CAPTCHA_IMG = "/html/body/main/div/div[2]/div[1]/div[1]/div[1]/div[2]/div/
 XPATH_INPUT = "//input[contains(@placeholder,'验证码') or contains(@class,'captcha') or @name='captcha' or @id='captcha']"
 XPATH_SUBMIT = "//button[contains(text(),'确定') or contains(text(),'提交') or contains(text(),'验证') or contains(@class,'submit')]"
 
+# 新增以下3行（重试机制配置）
+MAX_RETRIES = 6                                    # 最大重试次数
+PROTECTED_CONTENT_MIN_LENGTH = 100                 # 判断成功的长度阈值（可调整）
+
 
 def extract_and_save_nodes(driver, filename="node_content.txt"):
     """
@@ -132,73 +136,97 @@ def main():
         driver.get(URL)
         driver.maximize_window()
 
-        # 移除同意弹窗
-        dismiss_consent_banner(driver)
+        for attempt in range(1, MAX_RETRIES + 1):
+            # 移除同意弹窗
+            dismiss_consent_banner(driver)
+            print(f"\n📌 第 {attempt}/{MAX_RETRIES} 次尝试...")
 
-        print("⏳ 等待验证码图片加载...")
-        captcha_img = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.XPATH, XPATH_CAPTCHA_IMG))
-        )
-
-        img_src = captcha_img.get_attribute("src")
-        print(f"✅ 验证码图片地址：{img_src[:100]}...")
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = f"captcha_{timestamp}.png"
-
-        # ==== 支持 data:base64 ====
-        if img_src.startswith("data:image"):
-            header, base64_data = img_src.split(",", 1)
-            image_data = base64.b64decode(base64_data)
-            with open(save_path, "wb") as f:
-                f.write(image_data)
-            print(f"✅ 验证码图片已保存（base64解码）：{save_path}")
-        else:
-            import requests
-            response = requests.get(img_src, timeout=10)
-            with open(save_path, "wb") as f:
-                f.write(response.content)
-            print(f"✅ 验证码图片已保存（网络下载）：{save_path}")
-
-        # OCR 识别
-        result = ocr_with_cleaning(save_path)
-        print(f"{save_path}：🔍 处理后识别结果（仅数字）：{result}")
-
-        # ================== 新增：自动输入验证码 ==================
-        try:
-            input_box = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, XPATH_INPUT))
+            # 等待验证码图片
+            captcha_img = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, XPATH_CAPTCHA_IMG))
             )
-            input_box.clear()
-            input_box.send_keys(result)
-            print(f"✅ 已自动输入验证码：{result}")
-        except Exception as e:
-            print(f"⚠️ 自动输入验证码失败（请手动输入）：{e}")
 
-        # ================== 新增：点击“确定”按钮 ==================
-        try:
-            submit_btn = WebDriverWait(driver, 8).until(
-                EC.element_to_be_clickable((By.XPATH, XPATH_SUBMIT))
-            )
-            submit_btn.click()
-            print("✅ 已点击「确定」按钮")
-        except Exception as e:
-            print(f"⚠️ 点击「确定」按钮失败：{e}")
+            img_src = captcha_img.get_attribute("src")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_path = f"captcha_{timestamp}.png"
 
-        # ================== 新增：等待并打印节点内容 ==================
-        print("⏳ 等待节点内容加载）...")
-        time.sleep(15)  # 给页面一点时间解锁内容
+            if img_src.startswith("data:image"):
+                _, base64_data = img_src.split(",", 1)
+                with open(save_path, "wb") as f:
+                    f.write(base64.b64decode(base64_data))
+            else:
+                import requests
+                with open(save_path, "wb") as f:
+                    f.write(requests.get(img_src, timeout=10).content)
 
-        # 调用提取函数
-        extract_and_save_nodes(driver, filename="node_content.txt")
+            print(f"✅ 验证码图片已保存：{save_path}")
 
-        print("\n🎉 全流程自动化完成！浏览器保持打开 30 秒，你可以手动检查。")
+            # OCR 识别
+            result = ocr_with_cleaning(save_path)
+            print(f"🔍 OCR 识别结果：{result}")
+
+            # 输入验证码
+            try:
+                input_box = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, XPATH_INPUT))
+                )
+                input_box.clear()
+                input_box.send_keys(result)
+                print(f"✅ 已输入验证码：{result}")
+            except Exception as e:
+                print(f"⚠️ 输入验证码失败：{e}")
+
+            # 点击提交
+            try:
+                submit_btn = WebDriverWait(driver, 8).until(
+                    EC.element_to_be_clickable((By.XPATH, XPATH_SUBMIT))
+                )
+                submit_btn.click()
+                print("✅ 已点击「确定」按钮")
+            except Exception as e:
+                print(f"⚠️ 点击提交失败：{e}")
+
+            # ================== 新判断逻辑：检查 protected-content 内容长度 ==================
+            print(f"⏳ 第 {attempt} 次提交后，等待内容解锁...")
+            time.sleep(5)
+
+            success = False
+            for check in range(1, 5):
+                try:
+                    protected_div = driver.find_element(By.CSS_SELECTOR, "div.protected-content")
+                    content_len = len(protected_div.text.strip())
+                    print(f"   检查 {check}/7：protected-content 长度 = {content_len} 字符")
+
+                    if content_len > PROTECTED_CONTENT_MIN_LENGTH:
+                        print("🎉 protected-content 内容充足，验证成功！")
+                        success = True
+                        break
+                except:
+                    pass
+                time.sleep(3)
+
+            if success:
+                print("✅ 验证码验证通过，开始提取节点...")
+                extract_and_save_nodes(driver, filename="node_content.txt")
+                break
+            else:
+                print(f"❌ 第 {attempt} 次验证失败（内容不足）")
+                if attempt < MAX_RETRIES:
+                    print("🔄 刷新页面进行重试...")
+                    driver.refresh()
+                    time.sleep(10)
+                    continue
+                else:
+                    print("⛔ 已达到最大重试次数")
+                    break
+
+        print("\n🎉 全流程结束！浏览器保持打开 30 秒供你检查。")
         time.sleep(30)
 
     except Exception as e:
         print(f"❌ 发生错误：{e}")
     finally:
-        # driver.quit()  # 需要自动关闭就取消注释
+        # driver.quit()
         pass
 
 
