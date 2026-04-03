@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 
 # ================== 配置 ==================
-URL = "https://www.youneed.win/2026-04-03%E6%9C%80%E6%96%B0%E5%85%8D%E8%B4%B9%E5%85%AC%E7%9B%8Ass-vmess-vless-trojan-hysteria2%E8%8A%82%E7%82%B9%E5%88%86%E4%BA%AB.html"
+CATEGORY_URL = "https://www.youneed.win/category/nodeshare"   # 节点分享分类页
 XPATH_CAPTCHA_IMG = "/html/body/main/div/div[2]/div[1]/div[1]/div[1]/div[2]/div/div[1]/div[1]/div/img"
 
 # 新增：验证码输入框和确定按钮的 XPath（根据页面实际情况微调）
@@ -25,8 +25,47 @@ XPATH_INPUT = "//input[contains(@placeholder,'验证码') or contains(@class,'ca
 XPATH_SUBMIT = "//button[contains(text(),'确定') or contains(text(),'提交') or contains(text(),'验证') or contains(@class,'submit')]"
 
 # 新增以下3行（重试机制配置）
-MAX_RETRIES = 6                                    # 最大重试次数
+MAX_RETRIES = 10                                    # 最大重试次数
 PROTECTED_CONTENT_MIN_LENGTH = 100                 # 判断成功的长度阈值（可调整）
+
+
+def get_latest_node_url():
+    """
+    使用你指定的精确选择器获取最新节点文章链接
+    """
+    print("🔍 正在使用精确选择器获取最新节点文章...")
+
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+        }
+
+        response = requests.get(CATEGORY_URL, headers=headers, timeout=20)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # 使用你提供的精确选择器
+        latest_link = soup.select_one(
+            "body > main > div > div.row > div.col-lg-8 > div:nth-child(2) > div > div.list-content > div.list-body > a")
+
+        if latest_link and latest_link.get('href'):
+            latest_url = latest_link['href']
+            if not latest_url.startswith('http'):
+                latest_url = "https://www.youneed.win" + latest_url
+
+            title = latest_link.get('title') or latest_link.get_text(strip=True)
+            print(f"✅ 成功获取最新文章：{title}")
+            print(f"   链接：{latest_url}")
+            return latest_url
+
+    except Exception as e:
+        print(f"⚠️ 获取最新文章失败：{e}")
+        return None
 
 
 def extract_and_save_nodes(driver, filename="node_content.txt"):
@@ -166,6 +205,13 @@ def main():
 
     try:
         print("🚀 正在打开页面...")
+        # 新增：动态获取最新文章 URL
+        global URL
+        URL = get_latest_node_url()
+        if URL is None:
+            print('获取文章最新地址失败。。。请检查：get_latest_node_url()函数')
+            return
+        print(f"🌐 使用最新文章地址：{URL}")
         driver.get(URL)
         driver.maximize_window()
 
@@ -232,7 +278,7 @@ def main():
                 try:
                     protected_div = driver.find_element(By.CSS_SELECTOR, "div.protected-content")
                     content_len = len(protected_div.text.strip())
-                    print(f"   检查 {check}/7：protected-content 长度 = {content_len} 字符")
+                    print(f"   检查 {check}/4：protected-content 长度 = {content_len} 字符")
 
                     if content_len > PROTECTED_CONTENT_MIN_LENGTH:
                         print("🎉 protected-content 内容充足，验证成功！")

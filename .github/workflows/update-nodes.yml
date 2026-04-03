@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install selenium webdriver-manager ddddocr opencv-python-headless numpy requests
+          pip install selenium webdriver-manager ddddocr opencv-python-headless numpy requests beautifulsoup4
 
       - name: Run get_captcha_ocr.py
         run: python get_captcha_ocr.py
