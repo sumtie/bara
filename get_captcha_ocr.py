@@ -155,7 +155,7 @@ def dismiss_consent_banner(driver):
 
 def main():
     chrome_options = Options()
-    # chrome_options.add_argument("--headless")   # 需要无界面就取消注释
+    chrome_options.add_argument("--headless")   # 需要无界面就取消注释
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
