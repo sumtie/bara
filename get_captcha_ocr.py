@@ -1,3 +1,5 @@
+import re
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -23,6 +25,71 @@ XPATH_INPUT = "//input[contains(@placeholder,'验证码') or contains(@class,'ca
 XPATH_SUBMIT = "//button[contains(text(),'确定') or contains(text(),'提交') or contains(text(),'验证') or contains(@class,'submit')]"
 
 
+def extract_and_save_nodes(driver, filename="node_content.txt"):
+    """
+    极简可靠版：滚动到 protected-content 并提取完整原始文本
+    """
+    print("⏳ 正在定位并滚动到 protected-content 区域...")
+
+    try:
+        # 查找 protected-content div
+        protected_div = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.protected-content"))
+        )
+
+        # 关键步骤1：滚动元素进入视口（多次滚动确保长内容加载）
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", protected_div)
+        time.sleep(2)
+
+        # 关键步骤2：尝试把容器滚动到底部（针对内部 overflow: scroll 的 pre/div）
+        driver.execute_script("""
+            let el = arguments[0];
+            el.scrollTop = el.scrollHeight;
+            // 如果有子元素 pre，也滚动它们
+            let pres = el.querySelectorAll('pre');
+            pres.forEach(pre => { pre.scrollTop = pre.scrollHeight; });
+        """, protected_div)
+        time.sleep(3)  # 给页面一点时间渲染
+
+        # 关键步骤3：获取最完整的文本（优先用 innerText，其次 textContent）
+        node_content = protected_div.get_attribute("innerText") or protected_div.text
+
+        if not node_content or len(node_content) < 500:
+            # 备用：用 JavaScript 获取所有文本内容
+            node_content = driver.execute_script("return arguments[0].textContent || arguments[0].innerText;",
+                                                 protected_div)
+
+        print(f"✅ 提取成功！原始内容长度：{len(node_content):,} 字符")
+
+    except Exception as e:
+        print(f"⚠️ 提取 protected-content 失败 ({e})，尝试从 main 提取...")
+        try:
+            node_content = driver.find_element(By.TAG_NAME, "main").text
+        except:
+            node_content = "提取失败"
+
+    # 直接保存原始内容（完全不过滤）
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(node_content)
+        print(f"✅ 完整原始内容已保存到 → {filename}")
+        print(f"   文件大小：{len(node_content):,} 字符 | 约 {node_content.count('://')} 个节点")
+    except Exception as save_e:
+        print(f"❌ 保存失败：{save_e}")
+
+    # 简单预览
+    lines = node_content.splitlines()
+    preview = "\n".join(lines[:25])
+    if len(lines) > 25:
+        preview += f"\n\n...（共 {len(lines)} 行，完整内容已在 {filename} 中）"
+
+    print("\n" + "=" * 90)
+    print("提取内容预览（前25行）：")
+    print(preview)
+    print("=" * 90)
+
+    return node_content
+
 
 def dismiss_consent_banner(driver):
     """自动移除 fc-consent-root 弹窗"""
@@ -38,7 +105,8 @@ def dismiss_consent_banner(driver):
 
         # 方法2（备用）：尝试点击“同意”按钮（如果移除失败）
         try:
-            accept_btn = consent.find_element(By.XPATH, ".//button[contains(text(),'同意') or contains(text(),'接受') or contains(text(),'Accept')]")
+            accept_btn = consent.find_element(By.XPATH,
+                                              ".//button[contains(text(),'同意') or contains(text(),'接受') or contains(text(),'Accept')]")
             accept_btn.click()
             print("✅ 已点击同意按钮")
         except:
@@ -121,25 +189,8 @@ def main():
         print("⏳ 等待节点内容加载）...")
         time.sleep(15)  # 给页面一点时间解锁内容
 
-        try:
-            # 尝试提取节点内容（常见位置：pre/code 或包含 vmess/ss 的 div）
-            node_elements = driver.find_elements(By.XPATH,
-                                                 "//pre | //code | //div[contains(@class,'highlight') or contains(@class,'node') or contains(@class,'content')]")
-
-            if node_elements:
-                node_content = "\n\n".join([el.text.strip() for el in node_elements if el.text.strip()])
-            else:
-                # 备用方案：提取整个 main 区域
-                node_content = driver.find_element(By.TAG_NAME, "main").text
-
-            print("\n" + "=" * 70)
-            print("✅ 节点内容提取成功（订阅地址 + 所有节点）：")
-            print(node_content)
-            print("=" * 70)
-        except Exception as e:
-            print(f"⚠️ 提取节点内容失败：{e}")
-            print("页面主要内容预览（前 2000 字符）：")
-            print(driver.find_element(By.TAG_NAME, "main").text[:2000])
+        # 调用提取函数
+        extract_and_save_nodes(driver, filename="node_content.txt")
 
         print("\n🎉 全流程自动化完成！浏览器保持打开 30 秒，你可以手动检查。")
         time.sleep(30)
@@ -149,14 +200,6 @@ def main():
     finally:
         # driver.quit()  # 需要自动关闭就取消注释
         pass
-
-
-def ocr_captcha(image_path):
-    ocr = ddddocr.DdddOcr(show_ad=False)
-    with open(image_path, 'rb') as f:
-        img_bytes = f.read()
-    res = ocr.classification(img_bytes)
-    return res
 
 
 def ocr_with_cleaning(image_path):
