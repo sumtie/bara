@@ -1,0 +1,285 @@
+name: 编译TV
+
+on:
+  workflow_dispatch:
+    inputs:
+      rebuild:
+        description: '忽略构建记录以重新构建'
+        required: false
+        type: boolean
+      donotpublish:
+        description: '构建后不提交发布新版'
+        required: false
+        type: boolean
+      fongmi_app_name:
+        description: '指定要构建的 FongMi 应用名称（如：蜂蜜影视, 影视TV）'
+        required: false
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+#          - userName: FongMi
+#            repoName: TV
+#            branchName: release
+#            jdkVersion: 21
+#          - userName: jadehh
+#            repoName: FongMiTV
+#            branchName: release
+#            jdkVersion: 21
+          - userName: sumtie
+            repoName: TV
+            branchName: v253
+            jdkVersion: 21
+          - userName: sumtie
+            repoName: TV
+            branchName: v258
+            jdkVersion: 21
+
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure Table Format
+        if: ${{ env.commit }}
+        run: |
+          # 检查是否存在 Build Time 列，如果不存在则添加
+          if ! grep -q "| Build Time |" README.md; then
+            sed -i '/| Repository.*| Branch.*| Last Update/s/|$/| Build Time |/' README.md
+            sed -i '/|--*|--*|--*/s/|$/|--*|/' README.md
+            sed -i '/\[.*\].*|.*|.*[a-z0-9]\{40\}/s/|$/| - |/' README.md
+          fi
+
+      - name: Check New Commit
+        run: |
+          upStream=https://github.com/${{ matrix.userName }}/${{ matrix.repoName }}
+          echo "upStream=$upStream" >> $GITHUB_ENV
+          commit=$(curl -sL $upStream/commits/${{ matrix.branchName }} |grep -o "/${{ matrix.userName }}/${{ matrix.repoName }}/commit/[a-z0-9]\+" |head -1 | cut -d\/ -f5)
+          if [[ -z "${commit}" ]]; then
+            commit=$(curl -s "https://api.github.com/repos/${{ matrix.userName }}/${{ matrix.repoName }}/commits/${{ matrix.branchName }}?per_page=1" | jq -r '.sha' )
+          fi
+          if ! grep -q "$commit" README.md || [ "${{ inputs.rebuild }}" == "true" ]; then
+            echo "commit=$commit" >> $GITHUB_ENV
+            echo "commitS=${commit:0:7}" >> $GITHUB_ENV
+          fi
+          echo "commit=$commit"
+
+      - name: Checkout Source Code
+        if: ${{ env.commit }}
+        run: |
+          git clone ${{ env.upStream }} TVBoxOSC
+          cd TVBoxOSC
+          git checkout ${{ env.commit }}
+          echo "tag=$(git log --date=format:'%Y%m%d-%H%M' --pretty=format:%cd ${{ env.commitS }} -1)" >> $GITHUB_ENV
+
+      - name: Compress Source Code
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          # clean apk file
+          if [ -d "release" ]; then
+            find release/ -name "*.apk" -delete
+          fi
+          #zip -q -x ".git/*" -x  ".github/*" -r source-${{ env.commitS }}.zip .
+          tar -cJf source-${{ env.commitS }}.tar.xz --exclude=.git --exclude=.github *
+
+      - name: Release Apk Sign
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          #应用签名修改 
+          signingConfigs='ICAgIHNpZ25pbmdDb25maWdzIHtcCiAgICAgICAgaWYgKHByb2plY3QuaGFzUHJvcGVydHkoIlJFTEVBU0VfU1RPUkVfRklMRSIpKSB7XAogICAgICAgICAgICBteUNvbmZpZyB7XAogICAgICAgICAgICAgICAgc3RvcmVGaWxlIGZpbGUoUkVMRUFTRV9TVE9SRV9GSUxFKVwKICAgICAgICAgICAgICAgIHN0b3JlUGFzc3dvcmQgUkVMRUFTRV9TVE9SRV9QQVNTV09SRFwKICAgICAgICAgICAgICAgIGtleUFsaWFzIFJFTEVBU0VfS0VZX0FMSUFTXAogICAgICAgICAgICAgICAga2V5UGFzc3dvcmQgUkVMRUFTRV9LRVlfUEFTU1dPUkRcCiAgICAgICAgICAgICAgICB2MVNpZ25pbmdFbmFibGVkIHRydWVcCiAgICAgICAgICAgICAgICB2MlNpZ25pbmdFbmFibGVkIHRydWVcCiAgICAgICAgICAgICAgICBlbmFibGVWM1NpZ25pbmcgPSB0cnVlXAogICAgICAgICAgICAgICAgZW5hYmxlVjRTaWduaW5nID0gdHJ1ZVwKICAgICAgICAgICAgfVwKICAgICAgICB9XAogICAgfVwKXA=='
+          signingConfig='ICAgICAgICAgICAgaWYgKHByb2plY3QuaGFzUHJvcGVydHkoIlJFTEVBU0VfU1RPUkVfRklMRSIpKSB7XAogICAgICAgICAgICAgICAgc2lnbmluZ0NvbmZpZyBzaWduaW5nQ29uZmlncy5teUNvbmZpZ1wKICAgICAgICAgICAgfVwK'
+          signingConfigs="$(echo "$signingConfigs" |base64 -d )"
+          signingConfig="$(echo "$signingConfig" |base64 -d )"
+          sed -i -e "/defaultConfig {/i\\$signingConfigs " -e "/debug {/a\\$signingConfig " -e "/release {/a\\$signingConfig " app/build.gradle
+
+          cp -f ${{ github.workspace }}/.github/workflows/TVBoxOSC.jks app/TVBoxOSC.jks
+          sed -i '$a\RELEASE_STORE_FILE=./TVBoxOSC.jks'     ./gradle.properties
+          sed -i '$a\RELEASE_KEY_ALIAS=TVBoxOSC'            ./gradle.properties
+          sed -i '$a\RELEASE_STORE_PASSWORD=TVBoxOSC'       ./gradle.properties
+          sed -i '$a\RELEASE_KEY_PASSWORD=TVBoxOSC'         ./gradle.properties
+
+      - name: App Name Modify
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          echo "应用名称修改"
+          if [ -n "${{ github.event.inputs.fongmi_app_name }}" ]; then
+            sed -i 's|<string name="app_name">.*</string>|<string name="app_name">${{ github.event.inputs.fongmi_app_name }}</string>|' app/src/main/res/values-zh-rCN/strings.xml
+          else
+            sed -i 's|<string name="app_name">.*</string>|<string name="app_name">影视</string>|' app/src/main/res/values-zh-rCN/strings.xml
+          fi
+
+      - name: applicationId modify
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          echo "apk包名(applicationId修改)，以允许与原版共存"
+          sed -i 's/applicationId "com\.fongmi\.android\.tv"/applicationId "app.ok.tv"/' app/build.gradle
+          # fix quickjs provider authorities
+          sed -i 's/authorities="com\.fongmi\.quickjs\.provider"/authorities="${applicationId}\.quickjs\.provider"/g' app/src/main/AndroidManifest.xml
+          echo "====== app/build.gradle 修改后内容预览 ======"
+          cat app/build.gradle
+
+      - name: Remove x86
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          echo "移除 x86 架构"
+          if [ -f "app/build.gradle" ]; then
+            sed -i '/x86 {/,/^[[:space:]]*}/d' app/build.gradle
+            sed -i '/^[[:space:]]*$/N;/^\s*\n\s*$/d' app/build.gradle
+          fi
+
+      - name: Remove mobile
+        if: ${{ env.commit && false }}
+        working-directory: TVBoxOSC
+        run: |
+          echo "移除 mobile"
+          sed -i '/mobile {/,/^[[:space:]]*}/d' app/build.gradle
+          sed -i '/^[[:space:]]*mobileImplementation/d' app/build.gradle
+          echo "====== app/build.gradle 修改后内容预览 ======"
+          cat app/build.gradle
+
+      - name: remove Updater
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          echo "移除更新检测代码以及toast提示"
+          # 查找所有Updater.java文件并处理
+          find . -type f -name "Updater.java" | while read file; do
+            echo "处理文件: $file"
+            if [ -f "$file" ]; then
+              sed -i 's/^\(.*App\.execute.*\)/\/\/ \1/' "$file"
+              sed -i 's/^\(.*Notify\.show.*\)/\/\/ \1/' "$file"
+              echo "✅ 已处理: $file"
+            else
+              echo "⚠️  文件不存在: $file"
+            fi
+          done
+
+      - name: Geek modify
+        if: ${{ (matrix.userName == 'jadehh' || matrix.userName == 'sumtie') && env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          echo "这是 geek 专属定制【v1.8.2~v5.x.x】"
+          # glide cache maximum
+          cp -f ${{ github.workspace }}/.github/workflows/diy/OkHttpGlideModule.java app/src/main/java/com/fongmi/android/tv/utils/OkHttpGlideModule.java
+
+#          # config
+#          sed -i 's#\(package com.fongmi.android.tv;\)#\1\nimport com.fongmi.android.tv.bean.Config;#' app/src/main/java/com/fongmi/android/tv/App.java
+#          sed -i 's#\(Notify.createChannel();\)#\1\n        Config.create(1, "http://www.饭太硬.com/tv");#' app/src/main/java/com/fongmi/android/tv/App.java
+#          sed -i 's#\(Notify.createChannel();\)#\1\n        Config.create(0, "http://www.饭太硬.com/tv");#' app/src/main/java/com/fongmi/android/tv/App.java
+
+
+      - name: Setup JDK
+        if: ${{ env.commit }}
+        uses: actions/setup-java@main
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.jdkVersion }}
+
+      - name: Setup Python
+        if: ${{ env.commit }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Setup Gradle
+        if: ${{ env.commit }}
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Create local.properties
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Build With Gradle
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          chmod +x gradlew
+          echo "org.gradle.daemon=true" >> gradle.properties
+          echo "org.gradle.parallel=true" >> gradle.properties
+          echo "org.gradle.caching=true" >> gradle.properties
+          ./gradlew assemblerelease --build-cache --parallel --daemon --warning-mode all
+
+      - name: Prepare App
+        if: ${{ env.commit }}
+        working-directory: TVBoxOSC
+        run: |
+          rm -rf apk/
+          mkdir -p apk/
+          find ~ -type d -iname "release" -print0 | while IFS= read -r -d '' dir; do
+            find "$dir" -type f -name "*.apk" -exec sh -c 'cp "$1" "apk/${{ matrix.userName }}-${{ matrix.repoName }}-${{ matrix.branchName }}-${1##*/}"' sh {} \;
+          done
+
+
+      - name: Upload App To Artifact
+        uses: actions/upload-artifact@v4
+        if: ${{ env.commit }}
+        with:
+          name: ${{ matrix.userName }}-${{ matrix.repoName }}-${{ matrix.branchName }}
+          path: |
+            TVBoxOSC/apk/*
+
+      - name: Whether Or Not to Publish
+        if: ${{ inputs.donotpublish && env.commit }}
+        run: |
+          echo "commit=" >> $GITHUB_ENV
+
+      - name: Release and Upload Assets
+        uses: ncipollo/release-action@main
+        if: ${{ env.commit }}
+        with:
+          name: ${{ matrix.userName }}_${{ matrix.repoName }}_${{ matrix.branchName }}_${{ env.tag }}
+          tag: ${{ matrix.userName }}_${{ matrix.repoName }}_${{ matrix.branchName }}_${{ env.tag }}
+          allowUpdates: true
+          removeArtifacts: true
+          artifacts: |
+            TVBoxOSC/apk/*.apk
+            TVBoxOSC/source-${{ env.commitS }}.*
+
+      - name: Whether Or Not to Publish
+        if: ${{ inputs.donotpublish && env.commit }}
+        run: |
+          echo "commit=" >> $GITHUB_ENV
+
+      - name: Release and Upload Assets
+        uses: ncipollo/release-action@main
+        if: ${{ env.commit }}
+        with:
+          name: ${{ matrix.userName }}_${{ matrix.repoName }}_${{ matrix.branchName }}_${{ env.tag }}
+          tag: ${{ matrix.userName }}_${{ matrix.repoName }}_${{ matrix.branchName }}_${{ env.tag }}
+          allowUpdates: true
+          removeArtifacts: true
+          artifacts: |
+            TVBoxOSC/apk/*.apk
+            TVBoxOSC/source-${{ env.commitS }}.*
+
+      - uses: dev-drprasad/delete-older-releases@master
+        with:
+          keep_latest: 5
+          delete_tags: true
+          delete_tag_pattern: ${{ matrix.userName }}_${{ matrix.repoName }}_${{ matrix.branchName }}.*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  clean:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete workflow runs
+        uses: GitRML/delete-workflow-runs@main
+        with:
+          retain_days: 1
+          keep_minimum_runs: 3
