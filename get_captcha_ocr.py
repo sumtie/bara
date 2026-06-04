@@ -134,13 +134,10 @@ def extract_and_save_nodes(driver, filename="node_content.txt"):
     return node_content
 
 
-def clean_nodes_to_subfile(input_file="node_content.txt", output_file="sub/v2.txt"):
+def clean_nodes_to_subfile(input_file="node_content.txt", output_file="v2.txt"):
     """
-    读取 node_content.txt，清洗只保留节点链接，并保存到 sub/v2.txt
+    读取 node_content.txt，清洗只保留节点链接，并直接保存到当前目录的 v2.txt
     """
-    import os
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)  # 自动创建 sub 文件夹
-
     try:
         with open(input_file, "r", encoding="utf-8") as f:
             lines = f.readlines()

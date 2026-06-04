@@ -1,40 +1,51 @@
-name: Daily Update Nodes
+name: daily_update
 
 on:
   schedule:
-    - cron: '0 4 * * *'        # UTC 每天 4:00 执行（北京时间中午 12:00）
+    - cron: '0 4 * * *'        # UTC 每天 4:00（北京时间中午 12:00）
   workflow_dispatch:
 
 jobs:
   update-nodes:
     runs-on: ubuntu-latest
+    timeout-minutes: 12
 
     steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
-          pip install selenium webdriver-manager ddddocr opencv-python-headless numpy requests beautifulsoup4
+          pip install --upgrade pip
+          pip install playwright ddddocr opencv-python-headless numpy
 
-      - name: Run get_captcha_ocr.py
-        run: python get_captcha_ocr.py
+      - name: Install Playwright browser + system deps
+        run: |
+          playwright install --with-deps chromium
+
+      - name: Run the script
+        run: python get_captcha_ocr_playwright.py
 
       - name: Commit and push updated files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 使用上海时间生成 commit 信息
           CURRENT_TIME=$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S CST')
 
           if [[ -n $(git status --porcelain) ]]; then
-            git add sub/v2.txt
+            git add v2.txt
             git commit -m "Daily nodes update ${CURRENT_TIME}"
             git push
             echo "✅ 更新成功，已推送（上海时间：${CURRENT_TIME}）"
