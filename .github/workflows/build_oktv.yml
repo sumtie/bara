@@ -181,14 +181,8 @@ jobs:
         run: |
           rm -rf apk/
           mkdir -p apk/
-          for file in `find ~ -name "*release*.apk" -print`; do
-            base=$(basename "$file")
-            if [[ "$base" == TVBox_* ]]; then
-              new_base=$(echo "$base" | sed "s/release/${{ matrix.userName }}_${{ env.tag }}/")
-            else
-              new_base="TVBox_${{ matrix.userName }}_${{ env.tag }}.apk"
-            fi
-            mv "$file" "apk/$new_base"
+          for file in $(find ~ -name "*.apk"); do
+            mv "$file" apk/
           done
           mv sourceCode-${{ env.commitS }}.* apk/
 
