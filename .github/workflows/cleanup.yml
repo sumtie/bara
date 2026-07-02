@@ -1,0 +1,29 @@
+name: Cleanup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  deployments: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 删除 Deployment（保留1个）
+          gh api repos/${{ github.repository }}/deployments --jq 'sort_by(.created_at)|reverse|.[1:]|.[].id' |
+          while read id; do
+            gh api -X POST repos/${{ github.repository }}/deployments/$id/statuses -f state=inactive >/dev/null
+            gh api -X DELETE repos/${{ github.repository }}/deployments/$id || true
+          done
+
+          # 删除 Workflow Run（保留1个）
+          gh api repos/${{ github.repository }}/actions/runs --jq '.workflow_runs|sort_by(.created_at)|reverse|.[1:]|.[].id' |
+          while read id; do
+            gh api -X DELETE repos/${{ github.repository }}/actions/runs/$id || true
+          done
